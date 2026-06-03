@@ -1,23 +1,87 @@
-# reflection.md
+# gotchas.md
 
-## 1. In Task 2.1 you opened SSH from 0.0.0.0/0. In a real company, what would you restrict it to instead, and how?
+## 1. Incorrect Subnet CIDR Planning
 
-In a real company, I would not allow SSH access from 0.0.0.0/0 because it exposes the server to the entire internet. Instead, I would restrict access to a specific corporate VPN CIDR range or my public IP address using a /32 rule in the security group. This follows the principle of least privilege and reduces the attack surface. In many organizations, direct SSH access is avoided completely by using AWS Systems Manager Session Manager.
+Initially, I had to carefully verify that each subnet used a unique CIDR block. I double-checked all subnet ranges to ensure there were no overlaps and that each subnet fit within the VPC CIDR range.
 
----
-
-## 2. You copied a private key onto the bastion in Task 3.2. Name two reasons this is a bad practice and one alternative.
-
-Copying a private key to a bastion host is risky because anyone who gains access to the bastion can potentially steal the key and access other systems. It also makes key management, rotation, and auditing more difficult because the same key may exist in multiple locations. A better alternative is AWS Systems Manager Session Manager, which allows secure access to private EC2 instances without storing or copying SSH keys.
+**Fix:** Verified subnet calculations before creating resources.
 
 ---
 
-## 3. When would you choose a Gateway Endpoint vs an Interface Endpoint vs just using the NAT Gateway?
+## 2. Bastion SSH Access
 
-I would use a Gateway Endpoint when private EC2 instances need access to Amazon S3 or DynamoDB because it is free and keeps traffic on the AWS network. I would use an Interface Endpoint when private access is required for services such as Systems Manager, Secrets Manager, ECR, or CloudWatch because these services do not support Gateway Endpoints. I would use a NAT Gateway when instances need general internet access, such as downloading operating system packages, accessing third-party APIs, or reaching public repositories.
+I had to move the downloaded key pair to the ~/.ssh directory and set the correct permissions before SSH would work.
+
+**Fix:** Used:
+
+chmod 400 ~/.ssh/bootcamp-key.pem
+
+and retried the connection.
 
 ---
 
-## 4. VPC Peering vs Transit Gateway — when does Transit Gateway start to make sense?
+## 3. Private EC2 Could Not Reach the Internet
 
-VPC Peering works well when only a small number of VPCs need to communicate. As the number of VPCs increases, managing individual peering connections becomes complex because every VPC needs connections to multiple other VPCs. Transit Gateway provides a hub-and-spoke architecture that simplifies routing and connectivity management. It becomes the preferred option in large environments with multiple VPCs, AWS accounts, and regions.
+Before creating the NAT Gateway, the private EC2 instance could not run yum update because there was no outbound internet path.
+
+**Fix:** Created a NAT Gateway in the public subnet and added a default route (0.0.0.0/0) in the private route table.
+
+---
+
+## 4. Yum Update Process Was Stuck
+
+While testing internet connectivity, a previous yum update process was still running and blocked new update commands.
+
+**Fix:** Identified the process using:
+
+ps -fp <PID>
+
+and terminated the old process before rerunning the command.
+
+---
+
+## 5. Confusion Between Bastion and Private EC2
+
+At one point I attempted to SSH into the private instance while I was already logged into it, which caused authentication errors and confusion.
+
+**Fix:** Verified my current host using the shell prompt and private IP address before opening a new SSH session.
+
+---
+
+## 6. S3 Access Changed After Custom Policy
+
+After replacing AmazonS3ReadOnlyAccess with a custom policy, the command aws s3 ls returned AccessDenied.
+
+**Fix:** Confirmed that the custom policy intentionally allowed access only to the specific bucket and not to list all buckets in the account.
+
+---
+
+## 7. Interface Endpoint Creation Failed
+
+While creating the SSM Interface Endpoints, AWS returned an error indicating that DNS hostnames and DNS resolution were not enabled for the VPC.
+
+**Fix:** Enabled DNS Resolution and DNS Hostnames in the VPC settings and recreated the endpoint.
+
+---
+
+## 8. Security Group Rule Added in Wrong Section
+
+While creating vpce-sg, I initially added the HTTPS rule in the outbound section instead of the inbound section.
+
+**Fix:** Added an inbound HTTPS (443) rule from private-app-sg and kept the default outbound rule.
+
+---
+
+## 9. Understanding Route Tables
+
+I initially focused only on internet routes and overlooked the default local route that AWS automatically creates.
+
+**Fix:** Reviewed the route table and understood that the local route enables communication between resources inside the VPC.
+
+---
+
+## 10. Understanding Gateway Endpoint Behavior
+
+After deleting the NAT Gateway, S3 access stopped working until the Gateway Endpoint was configured.
+
+**Fix:** Created the S3 Gateway Endpoint and associated it with the private route table, which restored private connectivity to S3.
